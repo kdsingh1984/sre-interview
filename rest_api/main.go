@@ -1,11 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
 
@@ -84,11 +87,83 @@ func homePage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Welcome Home!!")
 }
 
+func dbConnect() *sql.DB {
+	db, err := sql.Open("mysql", "root:MyNewPass@tcp(127.0.0.1:3306)/test")
+	if err != nil {
+		log.Fatal("Failed to connect to DB")
+	}
+	return db
+}
+
+var DB *sql.DB = dbConnect()
+
+type Tag struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+func readTags(w http.ResponseWriter, r *http.Request) {
+	var tag Tag
+	var tags []Tag
+	rows, err := DB.Query("select  * from tags")
+	if err != nil {
+		errWriter(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	for rows.Next() {
+		err := rows.Scan(&tag.ID, &tag.Name)
+		if err != nil {
+			errWriter(w, 500, err.Error())
+			return
+		}
+		tags = append(tags, tag)
+	}
+	json.NewEncoder(w).Encode(tags)
+}
+
+// func postCall(w http.ResponseWriter, r *http.Request, reqStruct interface{}) interface{} {
+// 	reqBody, err := ioutil.ReadAll(r.Body)
+// 	if err != nil {
+// 		errWriter(w, http.StatusBadRequest, err.Error())
+// 		return nil
+// 	}
+// 	err = json.Unmarshal(reqBody, &reqStruct)
+// 	if err != nil {
+// 		errWriter(w, http.StatusInternalServerError, err.Error())
+// 		return nil
+// 	}
+// 	return reqStruct
+// }
+
+func addTag(w http.ResponseWriter, r *http.Request) {
+	var tag Tag
+	reqBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		errWriter(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	err = json.Unmarshal(reqBody, &tag)
+	if err != nil {
+		errWriter(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := fmt.Sprintf("insert into %s (id,name) values (%d,'%s');", "tags", tag.ID, tag.Name)
+	_, err = DB.Exec(q)
+	if err != nil {
+		errWriter(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func main() {
+	defer DB.Close()
 	router := mux.NewRouter()
 	router.HandleFunc("/", homePage)
 	router.HandleFunc("/getevents", getEvents)
 	router.HandleFunc("/createvent", createEvent)
 	router.HandleFunc("/updateEvent", updateEvent)
+	router.HandleFunc("/getallTags", readTags)
+	router.HandleFunc("/addTag", addTag)
 	http.ListenAndServe(":8181", router)
 }
